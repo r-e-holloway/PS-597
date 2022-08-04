@@ -1,0 +1,87 @@
+---
+title: "Coding variables"
+author: "Ruth Holloway"
+date: "2022-07-24"
+output: pdf_document
+---
+
+```{r}
+library(readxl)
+Secessionism_v3 <- read_excel("Secessionism_v3.xlsx")
+#View(Secessionism_v3)
+
+#Secessionism_v3$declare [is.na(Secessionism_v3$declare)] <- 0
+#Secessionism_v3$select1 [is.na(Secessionism_v3$select1)] <- 0
+
+#model1<-lm(select1~lost_auto, data=Secessionism_v3)
+#summary(model1)
+
+#model2<-lm(select1~mar, data=Secessionism_v3)
+#summary(model2)
+
+#model3<-lm(select1~econval2, data=Secessionism_v3)
+#summary(model3)
+
+#model4<-lm(select1~proto-state, data=Secessionism_v3)
+#summary(model4)
+```
+
+```{r}
+no_dupes2 <- read_excel("no_dupes2.xlsx")
+#View(no_dupes2)
+
+auto_model<-lm(select1~lost_auto, data=no_dupes2)
+summary(auto_model)
+
+minor_model<-lm(select1~mar, data=no_dupes2)
+summary(minor_model)
+
+#model3<-lm(select1~econval2, data=no_dupes)
+#summary(model3)
+
+#model4<-lm(select1~proto-state, data=no_dupes)
+#summary(model4)
+```
+
+```{r}
+uneven_development <- read_excel("uneven_development.xlsx")
+#View(uneven_development)
+dev_avg<-aggregate(Development ~ Country, uneven_development, mean)
+#View(dev_avg)
+
+mergeit <- rename(dev_avg, state = Country) 
+
+newdat <- left_join(mergeit,no_dupes2)
+#View(newdat)
+
+states = newdat[!duplicated(newdat$state),]
+#View(states)
+
+state_dev<-subset(states, select = c(state, Development))
+#View(state_dev)
+
+sec_dev_dat<-left_join(no_dupes2, state_dev)
+View(sec_dev_dat)
+
+dev_mod<-lm(select1~Development, data=sec_dev_dat)
+summary(dev_mod)
+```
+
+```{r}
+#see which variables are most influential as measures of uneven economic development
+
+#define my matrices
+##library(glmnet)
+##y <- sec_dev_dat$Development
+##x <- data.matrix(sec_dev_dat[, c('gini', 'war', 'literacy', 'slums')])
+
+#k-fold cross validation
+##cv_model <- cv.glmnet(x, y, alpha = 1)
+
+#find lambda that minimizes mean squared error
+##best_lambda <- cv_model$lambda.min
+##best_lambda 
+
+##best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+##coef(best_model)
+```
