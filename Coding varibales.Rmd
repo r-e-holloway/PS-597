@@ -30,11 +30,11 @@ Secessionism_v3 <- read_excel("Secessionism_v3.xlsx")
 no_dupes2 <- read_excel("no_dupes2.xlsx")
 #View(no_dupes2)
 
-auto_model<-lm(select1~lost_auto, data=no_dupes2)
-summary(auto_model)
+#auto_model<-lm(select1~lost_auto, data=no_dupes2)
+#summary(auto_model)
 
-minor_model<-lm(select1~mar, data=no_dupes2)
-summary(minor_model)
+#minor_model<-lm(select1~mar, data=no_dupes2)
+#summary(minor_model)
 
 #model3<-lm(select1~econval2, data=no_dupes)
 #summary(model3)
@@ -44,10 +44,11 @@ summary(minor_model)
 ```
 
 ```{r}
-uneven_development <- read_excel("uneven_development.xlsx")
+library(dplyr)
 #View(uneven_development)
 dev_avg<-aggregate(Development ~ Country, uneven_development, mean)
 #View(dev_avg)
+write_xlsx(dev_avg,"dev_avg.xlsx")
 
 mergeit <- rename(dev_avg, state = Country) 
 
@@ -68,20 +69,101 @@ summary(dev_mod)
 ```
 
 ```{r}
+ginietal <- left_join(dev_avg,gini)
+#View(ginietal)
+
+ginied <- left_join(ginietal, EducationalInequalityGiniCoefficient_Broad)
+#View(ginied)
+
+finalgini <- left_join(ginied, civilwar, na.rm = TRUE)
+View(finalgini)
+
+nomissing <-na.omit(finalgini)
+write_xlsx(nomissing,"dev_vary.xlsx")
+#View(nomissing)
+```
+
+
+```{r}
 #see which variables are most influential as measures of uneven economic development
 
 #define my matrices
-##library(glmnet)
-##y <- sec_dev_dat$Development
-##x <- data.matrix(sec_dev_dat[, c('gini', 'war', 'literacy', 'slums')])
+library(glmnet)
+y <- nomissing$Development
+x <- data.matrix(nomissing[, c('value', 'ed', "civil")])
 
 #k-fold cross validation
-##cv_model <- cv.glmnet(x, y, alpha = 1)
+cv_model <- cv.glmnet(x, y, alpha = 1)
 
 #find lambda that minimizes mean squared error
-##best_lambda <- cv_model$lambda.min
-##best_lambda 
+best_lambda <- cv_model$lambda.min
+best_lambda 
 
-##best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
-##coef(best_model)
+best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+coef(best_model)
+
+gini_model <- lm(Development~value, data=nomissing)
+summary(gini_model)
 ```
+
+```{r}
+library(tidyr)
+workingdat <- left_join(sec_dev_dat, finalgini)
+View(workingdat)
+
+workingdat$civil <- ifelse(is.na(workingdat$civil) == TRUE, 0, 1)
+
+minor_model<-lm(select1~mar, data=workingdat)
+summary(minor_model)
+
+minor_model2 <- lm(select1~mar+colony, data=workingdat)
+summary(minor_model2)
+
+auto_model<-lm(select1~lost_auto, data=workingdat)
+summary(auto_model)
+
+dev_model <- lm(select1~Development, data=workingdat)
+summary(dev_model)
+
+dev_model2 <- lm(select1~civil, data=workingdat)
+summary(dev_model2)
+
+dev_model3 <- lm(select1~civil+ed+value + civil*ed*value, data=workingdat)
+summary(dev_model2)
+```
+
+```{r}
+library(MASS)
+
+rminor_model<-rlm(select1~mar, data=workingdat)
+summary(rminor_model)
+
+summary(minor_model)$sigma #0.4807788
+summary(rminor_model)$sigma #0.7215221
+
+rminor_model2 <- rlm(select1~mar+colony, data=workingdat)
+summary(rminor_model2)
+
+summary(minor_model2)$sigma #0.4775841
+summary(rminor_model2)$sigma #0.6547864
+
+rauto_model<-rlm(select1~lost_auto, data=workingdat)
+summary(rauto_model)
+
+summary(auto_model)$sigma #0.4882144
+summary(rauto_model)$sigma #0.5726131
+
+rdev_model <- rlm(select1~Development, data=workingdat)
+summary(rdev_model)
+
+summary(dev_model)$sigma #0.4818118
+summary(rdev_model)$sigma #0.6953349
+
+rdev_model2 <- rlm(select1~civil, data=workingdat)
+summary(rdev_model2)
+
+summary(dev_model2)$sigma #0.4816268
+summary(rdev_model2)$sigma #0.5324435
+```
+
+

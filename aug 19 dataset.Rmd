@@ -1,0 +1,208 @@
+---
+title: "aug 19 dataset"
+author: "Ruth Holloway"
+date: "2022-08-15"
+output: pdf_document
+---
+
+```{r}
+options(scipen=999)
+#library(readxl)
+library(dplyr)
+gini <- read_excel("gini.xlsx")
+ed_gini <- read_excel("ed_gini.xlsx")
+
+gini <-aggregate(gini ~ statename, gini, mean)
+ed_gini <-aggregate(ed ~ statename, ed_gini, mean)
+
+gini_avg <- left_join(gini, ed_gini)
+View(gini_avg)
+```
+
+```{r}
+#create base of new dataset from politically relevant ethnic groups
+mergeEPR <- read_excel("mergeEPR.xlsx")
+#View(mergeEPR)
+
+mergeEPR <- unique(mergeEPR)
+
+library(writexl)
+write_xlsx(mergeEPR,"basedata.xlsx")
+```
+
+```{r}
+#get secessionist movement data
+no_dupes2 <- read_excel("no_dupes2.xlsx")
+no_dupes3 <- no_dupes2[!(no_dupes2$post45== 0),]
+#View (no_dupes3)
+
+write_xlsx(no_dupes3,"no_dupes3.xlsx")
+
+no_dupes4 <- read_excel("no_dupes4.xlsx")
+#View(no_dupes4)
+```
+
+```{r}
+#finish making my data and coding binary variables
+mydat2 <- read_excel("mydat2.xlsx")
+View(mydat2)
+
+mydat2$secede <- ifelse(is.na(mydat2$secede) == TRUE, 0, 1 )
+mydat2$minor <- ifelse(is.na(mydat2$minor) == TRUE, 0, 1 )
+mydat2$lost_auto <- ifelse(is.na(mydat2$lost_auto) == TRUE, 0, 1 )
+mydat2$colony <- ifelse(is.na(mydat2$colony) == TRUE, 0, 1 )
+
+write_xlsx(mydat2,"mydat3.xlsx")
+dat <- left_join(mydat2, gini_avg)
+#View(dat)
+
+dat <- dat %>% rowwise() %>%
+  mutate(gini_mean = mean(c_across(gini:ed)))
+#View(dat)
+```
+
+```{r}
+dat2 <-na.omit(dat)
+
+library(glmnet)
+y <- dat2$Development
+x <- data.matrix(dat2[, c('gini_mean', 'gini', "ed")])
+
+#k-fold cross validation
+cv_model <- cv.glmnet(x, y, alpha = 1)
+
+#find lambda that minimizes mean squared error
+best_lambda <- cv_model$lambda.min
+best_lambda 
+
+best_model <- glmnet(x, y, alpha = 1, lambda = best_lambda)
+coef(best_model)
+
+dev_model_main <- lm(secede~Development, data=dat)
+summary(dev_model_main)
+
+dev_model_proxy <- lm(secede~gini_mean, data=dat)
+summary(dev_model_proxy)
+```
+
+```{r}
+#logit for minor
+library(rms)
+library(caret)
+minor_fit=lrm(secede ~ minor, x=T, y=T, data=dat)
+
+#cluster SEs
+clustered_minor <- robcov(minor_fit, cluster=dat$statename)
+clustered_minor
+
+#logit model for lost_auto
+auto_fit=lrm(secede ~ lost_auto, x=T, y=T, data=dat)
+
+#cluster SEs
+clustered_auto <- robcov(auto_fit, cluster=dat$statename)
+clustered_auto
+
+#logit model for develoment
+dev_fit=lrm(secede ~ Development, x=T, y=T, data=dat)
+
+#cluster SEs
+clustered_dev <- robcov(dev_fit, cluster=dat$statename) #when I cluster my SEs the results go away!
+clustered_dev
+```
+
+```{r}
+#create training model
+sample <- sample(c(TRUE, FALSE), nrow(dat), replace=TRUE, prob=c(0.7,0.3))
+train <- dat[sample, ]
+test <- dat[!sample, ]  
+
+#fit logistic regression model for minority at risk status
+minor_log <- glm(secede~minor+colony, family="binomial", data=train)
+summary(minor_log)
+
+minor_log_t <- glm(secede~minor+colony, family="binomial", data=test)
+summary(minor_log_t)
+
+#compute predictive power
+pscl::pR2(minor_log)["McFadden"] #0.1116606 
+pscl::pR2(minor_log_t)["McFadden"] #0.1116606 
+
+performance_pcp(minor_log)
+performance_pcp(minor_log_t)
+
+#multicollinearity?
+car::vif(minor_log)
+car::vif(minor_log_t)
+```
+
+```{r}
+options(scipen=999)
+library(lmtest)
+library(sandwich)
+library(performance)
+
+#cluster standard errors at the state level
+minormod1 <- lm(secede~minor, data=dat)
+minor1coeffs_std <- data.frame(summary(minormod1)$coefficients)
+coi_indices <- which(!startsWith(row.names(minor1coeffs_std), 'statename'))
+minor1coeffs_std[coi_indices,]
+
+cluster_minor1 <- coeftest(minormod1, vcov = vcovCL, cluster = ~statename)
+cluster_minor1[coi_indices,]
+
+(confintmm1 <- coefci(minormod1, parm = coi_indices, vcov = vcovCL,
+                 cluster = ~statename))
+
+#alternative way to do clustered SEs; outcomes are equivalent to those of the sandwich appraoch
+#library(miceadds)
+#mod1 <- miceadds::lm.cluster( data=dat, formula=secede ~ minor + colony+minor*colony,
+#               cluster="statename" )
+```
+
+```{r}
+#cluster standard errors at the state level for minor as mediated by colony
+minormod2 <- lm(secede~minor+colony+minor*colony, data=dat)
+minor2coeffs_std <- data.frame(summary(minormod2)$coefficients)
+coi_indices2 <- which(!startsWith(row.names(minor2coeffs_std), 'statename'))
+minor2coeffs_std[coi_indices2,]
+
+cluster_minor2 <- coeftest(minormod2, vcov = vcovCL, cluster = ~statename)
+cluster_minor2[coi_indices2,]
+
+(confintmm2 <- coefci(minormod2, parm = coi_indices2, vcov = vcovCL,
+                 cluster = ~statename))
+```
+
+```{r}
+#cluster standard errors at the state level for lost autonomy
+automod <- lm(secede~lost_auto, data=dat)
+automod_std <- data.frame(summary(automod)$coefficients)
+coi_indices3 <- which(!startsWith(row.names(automod_std), 'statename'))
+automod_std[coi_indices,]
+
+cluster_auto <- coeftest(automod, vcov = vcovCL, cluster = ~statename)
+cluster_auto[coi_indices3,]
+
+(confintmm3 <- coefci(automod, parm = coi_indices3, vcov = vcovCL,
+                 cluster = ~statename))
+```
+
+```{r}
+#cluster standard errors at the state level for uneven economic development
+devmod <- lm(secede~gini_mean, data=dat)
+devmod_std <- data.frame(summary(devmod)$coefficients)
+coi_indices4 <- which(!startsWith(row.names(devmod_std), 'statename'))
+devmod_std[coi_indices4,]
+
+cluster_dev <- coeftest(devmod, vcov = vcovCL, cluster = ~statename)
+cluster_dev[coi_indices4,]
+
+(confintmm4 <- coefci(devmod, parm = coi_indices4, vcov = vcovCL,
+                 cluster = ~statename))
+```
+
+
+
+
+
+
